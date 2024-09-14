@@ -1,10 +1,16 @@
 library(httr)
 library(jsonlite)
-#你的oneapi站点，不要有斜杠
-url <- c('my_url')
+library(furrr)
+library(future)
+
+# 设置多线程计划，使用所有可用的CPU核，这里用10个线程
+plan(multisession,workers=10)
+
+# 你的oneapi站点，不要有斜杠
+url <- read.table("360-newapi",sep = "\t")%>%.$V1
 
 # 根据网页请求模拟登录
-login <- function(username, password,url=NULL) {
+login <- function(username, password, url=NULL) {
   data <- list(
     username = username,
     password = password
@@ -26,20 +32,19 @@ login <- function(username, password,url=NULL) {
   }
 }
 
-
 # 使用safely来包装login函数，防止报错使循环中断
 safe_login <- safely(login)
 
-# 对URL列表应用登录函数
-results <- map(url, ~safe_login("root", "123456", url = .))
+# 对URL列表应用并行登录函数
+results <- future_map(url, ~safe_login("root", "123456", url = .), .progress = TRUE)
 
 # 渠道函数
-channel <- function(page, page_size) {
+channel <- function(page, page_size, url=NULL) {
   last_url <- modify_url(url, path = "/api/channel/", 
                          query = list(p = page, page_size = page_size, id_sort = "false"))
   
   resp <- GET(last_url, 
-              handle = session,
+              handle = handle(url),
               timeout(3),
               config(ssl_verifypeer = FALSE))
   
@@ -51,5 +56,5 @@ channel <- function(page, page_size) {
   }
 }
 
-#登陆后查看渠道信息
-channel(1,10)
+# 并行获取渠道信息
+channel_results <- future_map(url, ~channel(1, 10, url = .), .progress = TRUE)
